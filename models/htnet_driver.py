@@ -40,10 +40,10 @@ from make_ecog_data import *
 #####################################
 #Data Params
 n_folds = 3
-ecog_srate = 500
+data_srate = 500
 n_chans = 64
 epoch_len = 9
-T_pos, T_neg = 3, 6 #
+T_pos, T_neg = 6, 36 #
 
 #Model Params
 dropoutType = 'Dropout'
@@ -57,7 +57,7 @@ loss='categorical_crossentropy'
 patience = 15
 early_stop_monitor='val_loss'
 epochs=64
-modeltype = 'eegnet_hilb'    #, 'eegnet', 'eegnet_hilb', 'lstm_eegnet', 'lstm_hilb', 'rf'
+modeltype = 'htnet'    #, 'eegnet', 'eegnet_hilb', 'lstm_eegnet', 'lstm_hilb', 'rf'
 
 wrist_lp = '/data1/users/stepeter/cnn_hilbert/ecog_data/xarray/'
 sp = '/data1/users/gsquist/state_decoder/accuracy_outputs/'
@@ -96,13 +96,15 @@ for sbj in ['a0f66459']:
         Y_val = Y_trainval_cat[val_inds,...]
 
         # Fit model
-        chckpt_path = sp+sbj+'/class_ssl/rel_pos_model_' + modeltype + '_fold_' + str(i)+'.h5'
+        #chckpt_path = sp+sbj+'/class_ssl/rel_pos_model_' + modeltype + '_fold_' + str(i)+'.h5'
+        chckpt_path = sp+sbj+'/class_ssl/sig_tran_model_' + modeltype + '_fold_' + str(i)+'.h5'
         nb_classes = len(states_all)
 
-        model = cNN_state_model(nb_classes, Chans = X_train.shape[2], Samples = X_train.shape[-1],
-                              dropoutRate = 0.5, kernLength = kernLength, D=2, F1 = 8,
-                              norm_rate = 0.25, dropoutType = dropoutType,ROIs = nROIs,useHilbert=useHilbert,
-                              projectROIs=projectROIs, do_log=False,compute_val='power',ecog_srate=ecog_srate) # add for hilbnet: do_log=False,compute_val='power',ecog_srate=500
+        model = htnet(nb_classes, Chans = X_train.shape[2], Samples = X_train.shape[-1],
+                  dropoutRate = 0.5, kernLength = kernLength, F1 = 8,
+                  D = 2, F2 = 16, norm_rate = 0.25, dropoutType = 'Dropout',
+                  ROIs = 100,useHilbert=True,projectROIs=False,kernLength_sep = 16,
+                  do_log=False,compute_val='power',data_srate = 500,base_split = 4)
 
         model.compile(loss=loss, optimizer=optimizer, metrics = ['accuracy'])
 

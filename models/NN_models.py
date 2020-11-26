@@ -17,29 +17,52 @@ from hilbert_DL_utils import *
 from tensorflow import squeeze as tf_squeeze
 
 
-def cNN_state_model(nb_classes, Chans = 64, Samples = 128,
-                    dropoutRate = 0.5, kernLength = 64, D=2, F1 = 8,
-                    norm_rate = 0.25, dropoutType = 'Dropout',
-                    ROIs = 100,useHilbert=False,projectROIs=False,
-                    do_log=False,compute_val='power',ecog_srate=500):
+"""
+Contains the keras model for HTNet and EEGNet decoding.
+EEGNet code written by @vlawhern (https://github.com/vlawhern/arl-eegmodels/blob/master/EEGModels.py).
+"""
+# Load utility functions for custom HTNet layers
+#from model_utils import apply_hilbert_tf, proj_to_roi
+
+def htnet(nb_classes, Chans = 64, Samples = 128,
+          dropoutRate = 0.5, kernLength = 64, F1 = 8,
+          D = 2, F2 = 16, norm_rate = 0.25, dropoutType = 'Dropout',
+          ROIs = 100,useHilbert=False,projectROIs=False,kernLength_sep = 16,
+          do_log=False,compute_val='power',data_srate = 500,base_split = 4):
     """
-    CNN state model
+    Keras model for HTNet, which implements EEGNet with custom layers that implement
+    the hilbert transform to compute spectral power/phase/frequency and project
+    data into common brain regions to generalize across participants, even when
+    electrode placement varies widely.
+
     Inputs:
 
-      nb_classes      : int, number of classes to classify
-      Chans, Samples  : number of channels and time points in the EEG data
-      dropoutRate     : dropout fraction
-      kernLength      : length of temporal convolution in first layer. We found
-                        that setting this to be half the sampling rate worked
-                        well in practice. For the SMR dataset in particular
-                        since the data was high-passed at 4Hz we used a kernel
-                        length of 32.
-      F1, F2          : number of temporal filters (F1) and number of pointwise
-                        filters (F2) to learn. Default: F1 = 8, F2 = F1 * D.
-      D               : number of spatial filters to learn within each temporal
-                        convolution. Default: D = 2
-      dropoutType     : Either SpatialDropout2D or Dropout, passed as a string.
+      nb_classes      : Number of classes to classify
+      Chans, Samples  : Number of channels and time points in the input neural data
+      dropoutRate     : Dropout fraction
+      kernLength      : Length of temporal convolution kernel in first layer
+      F1, F2          : Number of temporal filters (F1) and number of pointwise
+                        filters (F2) to learn; we used F2 = F1 * D, same as EEGNet paper
+      D               : Number of spatial filters to learn within each temporal
+                        convolution
+      norm_rate       : Maximum norm for dense layer weights
+      dropoutType     : Either SpatialDropout2D or Dropout, passed as a string
+      ROIs            : Number common brain regions projecting to (only used if projectROIs == True)
+      useHilbert      : If true, use Hilbert transform layer (HTNet); if false, will
+                        decode using time-domain signal (EEGNet)
+      projectROIs     : If true, project electrode-level data to common brain regions of interest,
+                        using projection matrix (2nd input when fitting model)
+      kernLength_sep  : Length of temporal convolution kernel in separable convolution layer
+      do_log          : If true, will compute log(x+1) of spectral power (only used if useHilbert ==True
+                        and compute_val == 'power')
+      compute_val     : Spectral measure to compute (if useHilbert ==True); can be 'power', 'relative_power', 'phase', or 'freqslide'
+                        for instantaneous power, relative power, phase, or frequency, respectively
+      data_srate      : Sampling rate of neural data for instantaneous frequency computation (if useHilbert ==True
+                        and compute_val == 'freqslide')
+      base_split      : Determines baseline to use for relative power; averages time dimension based on base split
+                        and takes first segment as baseline
     """
+
 
     if dropoutType == 'SpatialDropout2D':
         dropoutType = SpatialDropout2D
@@ -50,53 +73,62 @@ def cNN_state_model(nb_classes, Chans = 64, Samples = 128,
                          'or Dropout, passed as a string.')
 
     input1   = Input(shape = (1, Chans, Samples))
-
     if projectROIs:
         input2   = Input(shape = (1, ROIs, Chans))
 
     ##################################################################
-    X1 = Conv2D(F1, (1, kernLength), padding = 'same',
-               input_shape = (1, Chans, Samples),
-               use_bias = False)(input1)
+    block1       = Conv2D(F1, (1, kernLength), padding = 'same',
+                                   input_shape = (1, Chans, Samples),
+                                   use_bias = False)(input1)
 
-    X1 = Lambda(apply_hilbert_tf, arguments={'do_log':do_log,'compute_val':compute_val,\
-                                            'ecog_srate':ecog_srate})(X1) #Hilbert transform
+    if useHilbert:
+        # Hilbert transform
+        if compute_val == 'relative_power':
+            # Compute power for filtered input and divide by power for raw input
+            X1 = Lambda(apply_hilbert_tf, arguments={'do_log':True,'compute_val':'power'})(block1)
 
-    X1 = AveragePooling2D((1, X1.shape[-1]))(X1) # average across all time points #(None, 8, 64, 1)
-
-    # Compute total power
-    X2 = Lambda(apply_hilbert_tf, arguments={'do_log':do_log,'compute_val':compute_val,\
-                                             'ecog_srate':ecog_srate})(input1) #Hilbert transform
-
-    X2 = AveragePooling2D((1, X2.shape[-1]))(X2) # average across all time points
-    X2 = Lambda(lambda x: tf.tile(x,tf.constant([1,F1,1,1], dtype=tf.int32)))(X2)
-
-
-    # Divide filtered by total power at every electrode to get relative value
-    X = Lambda(lambda inputs: tf.math.truediv(inputs[0],inputs[1]))([X1, X2])
-
+            # Subtract off baseline (at beginning of input data trials)
+            X2 = AveragePooling2D((1, X1.shape[-1]//base_split))(X1) # average across all time points
+            X2 = Lambda(lambda x: tf.tile(x[...,:1],tf.constant([1,1,1,Samples], dtype=tf.int32)))(X2)
+            block1 = Lambda(lambda inputs: inputs[0]-inputs[1])([X1, X2])
+        else:
+            block1       = Lambda(apply_hilbert_tf, arguments={'do_log':do_log,'compute_val':compute_val,\
+                                                               'data_srate':data_srate})(block1)
     if projectROIs:
-        X = Lambda(proj_to_roi)([X,input2]) #project to ROIs
-    X = BatchNormalization(axis = 1)(X)
+        # Project to common brain regions
+        # block1       = AveragePooling2D((1, 2))(block1) # can downsample spectral measure before projection step to limit memory usage
+        block1       = Lambda(proj_to_roi)([block1,input2]) #project to ROIs
+    block1       = BatchNormalization(axis = 1)(block1)
+
+    # Depthwise kernel acts over all electrodes or brain regions
     if projectROIs:
-        X = DepthwiseConv2D((ROIs, 1), use_bias = False,
-                            depth_multiplier = D,
-                            depthwise_constraint = max_norm(1.))(X)
+        block1       = DepthwiseConv2D((ROIs, 1), use_bias = False,
+                                   depth_multiplier = D,
+                                   depthwise_constraint = max_norm(1.))(block1)
     else:
-        X = DepthwiseConv2D((Chans, 1), use_bias = False,
-                            depth_multiplier = D,
-                            depthwise_constraint = max_norm(1.))(X)
+        block1       = DepthwiseConv2D((Chans, 1), use_bias = False,
+                                   depth_multiplier = D,
+                                   depthwise_constraint = max_norm(1.))(block1)
+    block1       = BatchNormalization(axis = 1)(block1)
+    block1       = Activation('elu')(block1)
+    block1       = AveragePooling2D((1, 4))(block1)
+    block1       = dropoutType(dropoutRate)(block1)
 
-    X = BatchNormalization(axis = 1)(X)
-    X = Activation('elu')(X)
-    X = dropoutType(dropoutRate)(X)
-    X = Flatten(name = 'flatten')(X)
-    X = Dense(nb_classes, kernel_constraint = max_norm(norm_rate))(X)
-    softmax = Activation('softmax', name = 'softmax')(X)
+    block2       = SeparableConv2D(F2, (1, kernLength_sep),
+                                   use_bias = False, padding = 'same')(block1)
+    block2       = BatchNormalization(axis = 1)(block2)
+    block2       = Activation('elu')(block2)
+    block2       = AveragePooling2D((1, 8))(block2)
+    block2       = dropoutType(dropoutRate)(block2)
+
+    flatten      = Flatten(name = 'flatten')(block2)
+
+    dense        = Dense(nb_classes, name = 'dense',
+                         kernel_constraint = max_norm(norm_rate))(flatten)
+    softmax      = Activation('softmax', name = 'softmax')(dense)
 
     if projectROIs:
-        print("projectROIs")
+        # Projecting to common brain regions requires weight matrix input
         return Model(inputs=[input1,input2], outputs=softmax)
     else:
-        print("Not projectROIs")
         return Model(inputs=input1, outputs=softmax)
