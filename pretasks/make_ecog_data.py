@@ -34,7 +34,7 @@ def speech_signal_transform(sbj, lp):
 
 
 #
-def wrist_signal_transform(sbj, lp, n_chans_all=64, tlim=[-3,3], event_types=['rest','move']):
+def wrist_signal_transform(sbj, lp, n_chans_all=64, tlim=[-1,1], event_types=['rest','move']):
     transform_task = [0, 1, 2, 3, 4] #, 5, 6
     noise_amount, scaling_factor, permutation_pieces = 10, 15, 9  #
     ep_data_in = xr.open_dataset(lp+sbj+'_ecog_data.nc')
@@ -60,5 +60,5 @@ def wrist_signal_transform(sbj, lp, n_chans_all=64, tlim=[-3,3], event_types=['r
     train_sigs = np.vstack (( dat_train, noised_signal, scaled_signal, negated_signal, flipped_signal))
     train_labs = np.repeat(transform_task, dat_train.shape[0])
 
-    X_train, X_test, y_train, y_test = train_test_split(train_sigs, train_labs, stratify=train_labs, test_size=0.33)
+    X_train, X_test, y_train, y_test = train_test_split(train_sigs, train_labs, stratify=train_labs, test_size=0.25)
     return np.expand_dims(X_train,1), y_train, np.expand_dims(X_test,1), y_test
