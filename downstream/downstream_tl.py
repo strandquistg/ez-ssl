@@ -28,8 +28,8 @@ folds = 3
 
 # where to grab data
 wrist_lp = '/data1/users/stepeter/cnn_hilbert/ecog_data/xarray/'
-pats_ids_in = ['a0f66459', 'cb46fd46']
-
+pats_ids_in = ['a0f66459','c95c1e82','cb46fd46','fcb01f7a','ffb52f92','b4ac1726',
+               'f3b79359','ec761078','f0bbc9a9','abdb496b','ec168864','b45e3f7b']
 # model params
 optimizer='adam'
 loss='binary_crossentropy'
@@ -46,9 +46,10 @@ for sbj in pats_ids_in:
     for f in range(folds):
 #         set specific params
         fold = f
-        chckpt_path = sp+'checkpoint_gen_tl_'+sbj+'_fold'+str(fold)+'.h5'
+        pretask_type = 'sig_tran'
+        chckpt_path = sp+pretask_type+'/checkpoint_gen_tl_'+sbj+'_fold'+str(fold)+'.h5'
         model_dir = '/data1/users/gsquist/state_decoder/accuracy_outputs/'+sbj+'/class_ssl/'
-        model_name = 'sig_tran_model_htnet_fold_'+str(fold)+'.h5'
+        model_name = pretask_type+'_model_htnet_fold_'+str(fold)+'.h5'
         model_fname = model_dir + model_name
         
 #         load in the data and model
