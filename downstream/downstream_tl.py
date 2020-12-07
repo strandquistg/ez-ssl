@@ -3,7 +3,7 @@ import numpy as np
 import os
 #Choose GPU 0 as a default
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 import tensorflow as tf
 from tensorflow.keras.layers import Flatten, Dense, Activation
@@ -16,6 +16,7 @@ import sys
 sys.path.append('/home/zsteineh/cnn_hilbert/cnn_hilbert_workspace')
 import hilbert_DL_utils
 from hilbert_DL_utils import load_data
+import pickle
 
 # set various parameters
 # data params
@@ -127,6 +128,9 @@ for sbj in pats_ids_in:
     print("subject "+sbj+" done")
 
 print(acc_dict)
+name = pretask_type+'_acc_dict'
+with open(sp+'obj/'+ name + '.pkl', 'wb') as f:
+        pickle.dump(acc_dict, f)
 
 
         
