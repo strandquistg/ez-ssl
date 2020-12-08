@@ -18,7 +18,7 @@ import hilbert_DL_utils
 from hilbert_DL_utils import load_data
 import pickle
 
-def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim):
+def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim, n_folds):
     """
     Loads in the data for the specific subject, 
     and returns the data split into train, val and test in a format that 
@@ -55,9 +55,9 @@ def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim):
     x_val = X2[val_inds,...]
     y_val = y2[val_inds]
     
-    return x_train, y_train, x_val, y_val, X_test2, y_test2
+    return x_train, y_train, x_val, y_val, X_test2, y_test2, nb_classes
 
-def create_tl_model(pretask_type, model_dir, model_fname):
+def create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate):
     """
     creates model for transfer learning by loading in the weights 
     from the pretask model
@@ -126,6 +126,13 @@ def calc_accs(model, x_train, y_train, x_val, y_val, x_test, y_test):
     
     return acc_lst
 
+def pickle_save_accs(acc_dict, pretask_type, model_type, sp):
+    print(model_type)
+    print(acc_dict)
+    name = pretask_type+model_type+'_acc_dict'
+    with open(sp+'obj/'+ name + '.pkl', 'wb') as f:
+            pickle.dump(acc_dict, f)
+
 def main():
     # set various parameters
     # data params
@@ -147,6 +154,7 @@ def main():
     early_stop_monitor='val_loss'
     epochs=64
     sp = '/home/zsteineh/ez_ssl_results/'
+    model_types = ['pretask', 'tl', 'ts']
 
     # dictionaries to save accuracies
     pretask_acc_dict = {}
@@ -171,31 +179,44 @@ def main():
             pretask_model.summary()
 
             # load in the data
-            x_train, y_train, x_val, y_val, x_test, y_test = load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim)
+            x_train, y_train, x_val, y_val, x_test, y_test, nb_classes = load_and_split_data(sbj, wrist_lp, \
+                                                                                 n_chans_all, test_day, tlim, n_folds)
 
             # create the TL model
-            transfer_model = create_tl_model(pretask_type, model_dir, model_fname)
+            transfer_model = create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate)
 
-
-            # compile the model and train
+            # get accuracies before finetuning
+            pretask_total_acc_lst.append(calc_accs(transfer_model, x_train, y_train, x_val, y_val, x_test, y_test))
+            
+            # compile the model and finetune
             train_model(transfer_model, loss, optimizer, tl_chckpt_path, early_stop_monitor, \
                         patience, x_train, y_train, epochs, x_val, y_val)
 
-
-            # Get the tl accuracies. Just prints for now
-            transfer_model.load_weights(chckpt_path)
+            # Get the tl accuracies
+            transfer_model.load_weights(tl_chckpt_path)
             tl_total_acc_lst.append(calc_accs(transfer_model, x_train, y_train, x_val, y_val, x_test, y_test))
+            
+            # Run the traditional supervised model
+            ts_model = tf.keras.models.clone_model(transfer_model)
+            train_model(ts_model, loss, optimizer, ts_chckpt_path, early_stop_monitor, \
+                        patience, x_train, y_train, epochs, x_val, y_val)
+            
+            ts_model.load_weights(ts_chckpt_path)
+            ts_total_acc_lst.append(calc_accs(ts_model, x_train, y_train, x_val, y_val, x_test, y_test))
+            
 
+        pretask_acc_dict[sbj] = pretask_total_acc_lst
         tl_acc_dict[sbj] = tl_total_acc_lst
+        ts_acc_dict[sbj] = ts_total_acc_lst
         print("subject "+sbj+" done")
 
-    print(tl_acc_dict)
-    name = pretask_type+'_acc_dict'
-    with open(sp+'obj/'+ name + '.pkl', 'wb') as f:
-            pickle.dump(acc_dict, f)
+    pickle_save_accs(pretask_acc_dict, pretask_type, model_types[0], sp)
+    pickle_save_accs(tl_acc_dict, pretask_type, model_types[1], sp)
+    pickle_save_accs(ts_acc_dict, pretask_type, model_types[2], sp)
 
 
-
+if __name__ == "__main__":
+    main()
 
 
 
