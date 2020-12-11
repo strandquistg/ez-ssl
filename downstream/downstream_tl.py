@@ -57,7 +57,7 @@ def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim, n_folds):
     
     return x_train, y_train, x_val, y_val, X_test2, y_test2, nb_classes
 
-def create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate):
+def create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate, pretask_model):
     """
     creates model for transfer learning by loading in the weights 
     from the pretask model
@@ -168,7 +168,7 @@ def main():
         ts_total_acc_lst = []
         for fold in range(folds):
     #         set specific params
-            pretask_type = 'rel_pos'
+            pretask_type = 'sig_tran'
             tl_chckpt_path = sp+pretask_type+'/checkpoint_gen_tl_'+sbj+'_fold'+str(fold)+'.h5'
             ts_chckpt_path = sp+pretask_type+'/checkpoint_gen_ts_'+sbj+'_fold'+str(fold)+'.h5'
             model_dir = '/data1/users/gsquist/state_decoder/accuracy_outputs/'+sbj+'/class_ssl/'
@@ -183,7 +183,7 @@ def main():
                                                                                  n_chans_all, test_day, tlim, n_folds)
 
             # create the TL model
-            transfer_model = create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate)
+            transfer_model = create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate, pretask_model)
 
             # get accuracies before finetuning
             pretask_total_acc_lst.append(calc_accs(transfer_model, x_train, y_train, x_val, y_val, x_test, y_test))
