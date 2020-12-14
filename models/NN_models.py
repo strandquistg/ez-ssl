@@ -12,7 +12,8 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.utils import plot_model
 
 import sys
-sys.path.append('/home/stepeter/AJILE/cnn_hilbert/cnn_hilbert_workspace/')
+#sys.path.append('/home/stepeter/AJILE/cnn_hilbert/cnn_hilbert_workspace/')
+sys.path.append('/home/gsquist/repos/ellie_sandbox/state_decoder/')
 from hilbert_DL_utils import *
 from tensorflow import squeeze as tf_squeeze
 

@@ -13,7 +13,7 @@ np.random.seed(seed=42)
 #read in speech fif files
 def get_speech_epochs(sbj, lp):
     sigs, labs = [], []
-    f_load = natsort.natsorted(glob.glob(lp+'/*_epo.fif'))
+    f_load = natsort.natsorted(glob.glob(lp+sbj+'/speak_silent/'+'*_epo.fif'))
     print("for sjb",sbj, "f_load is",f_load)
     eps_to_file = {}
     for i, f in enumerate(f_load):

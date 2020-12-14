@@ -14,7 +14,7 @@ if os.environ.get("CUDA_VISIBLE_DEVICES") is None:
     os.environ["CUDA_VISIBLE_DEVICES"]="1"
 import tensorflow as tf
 # EEGNet-specific imports
-from NN_models import cNN_state_model #eegnet,
+from NN_models import htnet #eegnet,
 from hilbert_DL_utils import *
 from tensorflow.keras import utils as np_utils
 from tensorflow.keras.callbacks import ModelCheckpoint,EarlyStopping
@@ -31,7 +31,8 @@ from keras.utils.vis_utils import plot_model
 from mne.datasets import multimodal
 from sklearn.utils import shuffle
 sys.path.append('/home/gsquist/repos/ellie_sandbox/epoching_scripts')
-sys.path.append('/home/gsquist/repos/ellie_sandbox/ssl_class_project/')
+#sys.path.append('/home/gsquist/repos/ellie_sandbox/ssl_class_project/')
+sys.path.append('/home/gsquist/repos/ez-ssl/pretasks/')
 from load_data_utils import *
 from epoching_utils import *
 from signal_transforms import *
@@ -53,7 +54,6 @@ useHilbert=True
 projectROIs=False
 optimizer='adam'
 loss='categorical_crossentropy'
-#loss='binary_crossentropy'
 patience = 15
 early_stop_monitor='val_loss'
 epochs=64
@@ -70,7 +70,6 @@ sp = '/data1/users/gsquist/state_decoder/accuracy_outputs/'
 for sbj in ['a0f66459']:
     if not os.path.exists(sp+sbj+'/class_ssl/'):
         os.makedirs(sp+sbj+'/class_ssl/')
-
     if datatype == "wrist":
         train, test = get_steve_wrist_epochs(sbj[:3], wrist_lp, event_types=[1, 2], n_chans_all=n_chans, tlim=[-1,1])
     elif datatype == "speech":
@@ -79,9 +78,11 @@ for sbj in ['a0f66459']:
     if pretask == "st":
         X_trainval, Y_trainval, X_test, Y_test = signal_transform(train, test)
         states_all = ['original_signal', 'noised_signal', 'scaled_signal', 'negated_signal', 'flipped_signal']
+        loss='categorical_crossentropy'
     elif pretask == "rp":
         X_trainval, Y_trainval, X_test, Y_test = rel_pos(train, test, T_pos, T_neg)
         states_all = ['t_pos', 't_neg']
+        loss='binary_crossentropy'
 
     num_evs_per_state = np.min( np.unique(Y_trainval, return_counts=True)[1] )
     print("num events per state:",num_evs_per_state)
@@ -123,7 +124,6 @@ for sbj in ['a0f66459']:
                   do_log=False,compute_val='power',data_srate = 500,base_split = 4)
 
         model.compile(loss=loss, optimizer=optimizer, metrics = ['accuracy'])
-        pdb.set_trace()
         checkpointer = ModelCheckpoint(filepath=chckpt_path,verbose=1,save_best_only=True)
         early_stop = EarlyStopping(monitor=early_stop_monitor, mode='min',
                                    patience=patience, verbose=0) #stop if val_loss doesn't improve after certain # of epochs
