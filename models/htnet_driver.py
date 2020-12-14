@@ -58,31 +58,49 @@ patience = 15
 early_stop_monitor='val_loss'
 epochs=64
 modeltype = 'htnet'    #, 'eegnet', 'eegnet_hilb', 'lstm_eegnet', 'lstm_hilb', 'rf'
-
+datatype = "speech" #wrist
+pretask = "st" #rp
+train, test, X_trainval, Y_trainval, X_test, Y_test, states_all = [], [], [], [], [], [], []
+chckpt_path = ""
 wrist_lp = '/data1/users/stepeter/cnn_hilbert/ecog_data/xarray/'
+speech_lp = '/data2/users/gsquist/speech_project/epochd_ecog_data/'
 sp = '/data1/users/gsquist/state_decoder/accuracy_outputs/'
 
 #####################################
 for sbj in ['a0f66459']:
-    if not os.path.exists(sp+sbj):
-        os.makedirs(sp+sbj)
+    if not os.path.exists(sp+sbj+'/class_ssl/'):
+        os.makedirs(sp+sbj+'/class_ssl/')
 
-    X_trainval, Y_trainval, X_test, Y_test = wrist_signal_transform(sbj[:3], wrist_lp, n_chans_all=64, tlim=[-1,1], event_types=['rest','move'])
-    #X_trainval, Y_trainval, X_test, Y_test = wrist_rel_pos(sbj[:3], wrist_lp, T_pos, T_neg, n_chans_all=64, tlim=[-1,1], event_types=['rest','move'])
+    if datatype == "wrist":
+        train, test = get_steve_wrist_epochs(sbj[:3], wrist_lp, event_types=[1, 2], n_chans_all=n_chans, tlim=[-1,1])
+    elif datatype == "speech":
+        train, test = get_speech_epochs(sbj, speech_lp)
+
+    if pretask == "st":
+        X_trainval, Y_trainval, X_test, Y_test = signal_transform(train, test)
+        states_all = ['original_signal', 'noised_signal', 'scaled_signal', 'negated_signal', 'flipped_signal']
+    elif pretask == "rp":
+        X_trainval, Y_trainval, X_test, Y_test = rel_pos(train, test, T_pos, T_neg)
+        states_all = ['t_pos', 't_neg']
+
     num_evs_per_state = np.min( np.unique(Y_trainval, return_counts=True)[1] )
     print("num events per state:",num_evs_per_state)
     ev_inds_shuffle = np.arange(num_evs_per_state)
     # Reformat for CNN fitting
     Y_trainval_cat = np_utils.to_categorical(Y_trainval)
     Y_test_cat  = np_utils.to_categorical(Y_test)
-    states_all = ['original_signal', 'noised_signal', 'scaled_signal', 'negated_signal', 'flipped_signal'] #, 'permuted_signal'
-    #states_all = ['t_pos', 't_neg']
+
     num_evs_per_fold = num_evs_per_state//n_folds
     accs = np.zeros([n_folds,3]) # accuracy table for all NN models, Rows x Columns: Folds x Train/val/test
     last_epochs = np.zeros(n_folds)
 
     for i in range(n_folds):
         print("#####################################\n#####################################\nFold number",i)
+        if pretask == "st":
+            chckpt_path = sp+sbj+'/class_ssl/sig_tran_' + datatype + "_" + modeltype + '_fold_' + str(i)+'.h5'
+        elif pretask == "rp":
+            chckpt_path = sp+sbj+'/class_ssl/rel_pos_' + datatype + "_" + modeltype + '_fold_' + str(i)+'.h5'
+
         curr_inds = ev_inds_shuffle[(i*num_evs_per_fold):((i+1)*num_evs_per_fold)]
         val_inds = []
         for j in range(len(states_all)):
@@ -96,8 +114,6 @@ for sbj in ['a0f66459']:
         Y_val = Y_trainval_cat[val_inds,...]
 
         # Fit model
-        #chckpt_path = sp+sbj+'/class_ssl/rel_pos_model_' + modeltype + '_fold_' + str(i)+'.h5'
-        chckpt_path = sp+sbj+'/class_ssl/sig_tran_model_' + modeltype + '_fold_' + str(i)+'.h5'
         nb_classes = len(states_all)
 
         model = htnet(nb_classes, Chans = X_train.shape[2], Samples = X_train.shape[-1],
@@ -107,7 +123,7 @@ for sbj in ['a0f66459']:
                   do_log=False,compute_val='power',data_srate = 500,base_split = 4)
 
         model.compile(loss=loss, optimizer=optimizer, metrics = ['accuracy'])
-
+        pdb.set_trace()
         checkpointer = ModelCheckpoint(filepath=chckpt_path,verbose=1,save_best_only=True)
         early_stop = EarlyStopping(monitor=early_stop_monitor, mode='min',
                                    patience=patience, verbose=0) #stop if val_loss doesn't improve after certain # of epochs
