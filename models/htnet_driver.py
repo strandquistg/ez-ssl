@@ -45,6 +45,7 @@ data_srate = 500
 n_chans = 64
 epoch_len = 9
 T_pos, T_neg = 6, 36 #
+crop_val = 0
 
 #Model Params
 dropoutType = 'Dropout'
@@ -59,7 +60,7 @@ early_stop_monitor='val_loss'
 epochs=64
 modeltype = 'htnet'    #, 'eegnet', 'eegnet_hilb', 'lstm_eegnet', 'lstm_hilb', 'rf'
 datatype = "speech" #wrist
-pretask = "st" #rp
+pretask = "rp" #rp
 train, test, X_trainval, Y_trainval, X_test, Y_test, states_all = [], [], [], [], [], [], []
 chckpt_path = ""
 wrist_lp = '/data1/users/stepeter/cnn_hilbert/ecog_data/xarray/'
@@ -73,8 +74,10 @@ for sbj in ['a0f66459']:
     if datatype == "wrist":
         train, test = get_steve_wrist_epochs(sbj[:3], wrist_lp, event_types=[1, 2], n_chans_all=n_chans, tlim=[-1,1])
     elif datatype == "speech":
-        train, test = get_speech_epochs(sbj, speech_lp)
-
+        if pretask == "rp":
+            train, test = get_speech_epochs(sbj, speech_lp, crop_val=3)
+        else:
+            train, test = get_speech_epochs(sbj, speech_lp, crop_val=0)
     if pretask == "st":
         X_trainval, Y_trainval, X_test, Y_test = signal_transform(train, test)
         states_all = ['original_signal', 'noised_signal', 'scaled_signal', 'negated_signal', 'flipped_signal']
@@ -94,7 +97,6 @@ for sbj in ['a0f66459']:
     num_evs_per_fold = num_evs_per_state//n_folds
     accs = np.zeros([n_folds,3]) # accuracy table for all NN models, Rows x Columns: Folds x Train/val/test
     last_epochs = np.zeros(n_folds)
-
     for i in range(n_folds):
         print("#####################################\n#####################################\nFold number",i)
         if pretask == "st":
@@ -139,9 +141,8 @@ for sbj in ['a0f66459']:
 
         # Load model weights from best model and compute train/val/test accuracies
         model.load_weights(chckpt_path)
-    #
+
         accs_lst = []
-        #pdb.set_trace()
         preds_full = model.predict(X_train)
         preds       = model.predict(X_train).argmax(axis = -1)
         accs_lst.append(np.mean(preds == Y_train.argmax(axis=-1)))

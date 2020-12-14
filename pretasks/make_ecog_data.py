@@ -11,7 +11,7 @@ import xarray as xr
 np.random.seed(seed=42)
 
 #read in speech fif files
-def get_speech_epochs(sbj, lp):
+def get_speech_epochs(sbj, lp, crop_val):
     sigs, labs = [], []
     f_load = natsort.natsorted(glob.glob(lp+sbj+'/speak_silent/'+'*_epo.fif'))
     print("for sjb",sbj, "f_load is",f_load)
@@ -20,8 +20,12 @@ def get_speech_epochs(sbj, lp):
         eps = f_load[i].split('/')[-1].split('_')[3][:3]
         eps_to_file[eps] = f_load[i]
     max_eps, min_eps = max(eps_to_file, key=eps_to_file.get), min(eps_to_file, key=eps_to_file.get)
-    epochs_train = mne.read_epochs(eps_to_file[max_eps]).crop(tmin=-3, tmax=3, include_tmax=True)
-    epochs_test = mne.read_epochs(eps_to_file[min_eps]).crop(tmin=-3, tmax=3, include_tmax=True)
+    if crop_val > 0:
+        epochs_train = mne.read_epochs(eps_to_file[max_eps]).crop(tmin=-1*crop_val, tmax=crop_val, include_tmax=True)
+        epochs_test = mne.read_epochs(eps_to_file[min_eps]).crop(tmin=-1*crop_val, tmax=crop_val, include_tmax=True)
+    else:
+        epochs_train = mne.read_epochs(eps_to_file[max_eps])
+        epochs_test = mne.read_epochs(eps_to_file[min_eps])
     train_dat = epochs_train.get_data()
     test_dat = epochs_test.get_data()
     return train_dat, test_dat
