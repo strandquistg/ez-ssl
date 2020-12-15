@@ -11,7 +11,7 @@ import numpy as np
 if os.environ.get("CUDA_VISIBLE_DEVICES") is None:
     #Choose GPU 0 as a default if not specified (can set this in Python script that calls this)
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="1"
+    os.environ["CUDA_VISIBLE_DEVICES"]="0"
 import tensorflow as tf
 # EEGNet-specific imports
 from NN_models import htnet #eegnet,
@@ -60,7 +60,7 @@ early_stop_monitor='val_loss'
 epochs=64
 modeltype = 'htnet'    #, 'eegnet', 'eegnet_hilb', 'lstm_eegnet', 'lstm_hilb', 'rf'
 datatype = "speech" #wrist
-pretask = "rp" #rp
+pretask = "st" #rp
 train, test, X_trainval, Y_trainval, X_test, Y_test, states_all = [], [], [], [], [], [], []
 chckpt_path = ""
 wrist_lp = '/data1/users/stepeter/cnn_hilbert/ecog_data/xarray/'
@@ -68,7 +68,7 @@ speech_lp = '/data2/users/gsquist/speech_project/epochd_ecog_data/'
 sp = '/data1/users/gsquist/state_decoder/accuracy_outputs/'
 
 #####################################
-for sbj in ['a0f66459']:
+for sbj in ['cb46fd46', 'b45e3f7b']: #, 'cb46fd46', 'b45e3f7b'
     if not os.path.exists(sp+sbj+'/class_ssl/'):
         os.makedirs(sp+sbj+'/class_ssl/')
     if datatype == "wrist":
@@ -77,7 +77,7 @@ for sbj in ['a0f66459']:
         if pretask == "rp":
             train, test = get_speech_epochs(sbj, speech_lp, crop_val=3)
         else:
-            train, test = get_speech_epochs(sbj, speech_lp, crop_val=0)
+            train, test = get_speech_epochs(sbj, speech_lp, crop_val=3)
     if pretask == "st":
         X_trainval, Y_trainval, X_test, Y_test = signal_transform(train, test)
         states_all = ['original_signal', 'noised_signal', 'scaled_signal', 'negated_signal', 'flipped_signal']
