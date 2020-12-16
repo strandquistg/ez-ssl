@@ -1,6 +1,6 @@
 import numpy as np
 
-import os
+import os, math, pdb, glob, os, sys, natsort, h5py, mne
 #Choose GPU 0 as a default
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
@@ -18,14 +18,36 @@ import hilbert_DL_utils
 from hilbert_DL_utils import load_data
 import pickle
 
-def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim, n_folds):
+def load_speech_labled(sbj, speech_lp):
+    sigs, labs = [], []
+    f_load = natsort.natsorted(glob.glob(speech_lp+sbj+'/speak_silent/'+'*_epo.fif'))
+    print("for sjb",sbj, "f_load is",f_load)
+    eps_to_file = {}
+    for i, f in enumerate(f_load):
+        eps = f_load[i].split('/')[-1].split('_')[3][:3]
+        eps_to_file[eps] = f_load[i]
+    max_eps, min_eps = max(eps_to_file, key=eps_to_file.get), min(eps_to_file, key=eps_to_file.get)
+    epochs_train = mne.read_epochs(eps_to_file[max_eps]).crop(tmin=-3, tmax=3, include_tmax=True)
+    epochs_test = mne.read_epochs(eps_to_file[min_eps]).crop(tmin=-3, tmax=3, include_tmax=True)
+    X = epochs_train.get_data()
+    x_test = epochs_test.get_data()
+
+    y = epochs_train.events[:,-1]
+    y_test = epochs_test.events[:,-1]
+    
+    return X, y, x_test, y_test
+
+def load_and_split_data(sbj, lp, n_chans_all, test_day, tlim, n_folds, datatype):
     """
     Loads in the data for the specific subject, 
     and returns the data split into train, val and test in a format that 
     the tensorflow model can accept
     """
     # load in the data for the subject
-    X,y,x_test,y_test,sbj_order_all,sbj_order_test_last = load_data(sbj, wrist_lp,
+    if datatype == "speech": 
+        X,y,x_test,y_test = load_speech_labled(sbj, lp)
+    else:
+        X,y,x_test,y_test,sbj_order_all,sbj_order_test_last = load_data(sbj, lp,
                                                               n_chans_all=n_chans_all,
                                                               test_day=test_day, tlim=tlim)
     #split data for test and val, and convert to tensorflow version
@@ -36,8 +58,8 @@ def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim, n_folds):
     y = y[order_inds]
     order_inds_test = np.arange(len(y_test))
     np.random.shuffle(order_inds_test)
-    # X_test = X_test[order_inds_test,...]
-    # y_test = y_test[order_inds_test]
+    x_test = x_test[order_inds_test,...]
+    y_test = y_test[order_inds_test]
     y2 = np_utils.to_categorical(y-1)
     y_test2 = np_utils.to_categorical(y_test-1)
     X2 = np.expand_dims(X,1)
@@ -57,7 +79,7 @@ def load_and_split_data(sbj, wrist_lp, n_chans_all, test_day, tlim, n_folds):
     
     return x_train, y_train, x_val, y_val, X_test2, y_test2, nb_classes
 
-def create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate, pretask_model):
+def create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate, pretask_model, datatype):
     """
     creates model for transfer learning by loading in the weights 
     from the pretask model
@@ -66,7 +88,7 @@ def create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm
     # janky to make the dimensions work
     if pretask_type == 'rel_pos':
         # find the associated sig_tran pretask, as the dimensions here match better
-        sig_tran_model_fname = model_dir + 'sig_tran_model_htnet_fold_'+str(fold)+'.h5'
+        sig_tran_model_fname = model_dir + 'sig_tran_' + datatype + '_htnet_fold_'+str(fold)+'.h5'
         sig_tran_pretask_model = tf.keras.models.load_model(sig_tran_model_fname)
         x = sig_tran_pretask_model.layers[-4].output
         x = Flatten(name = 'flatten2')(x)
@@ -126,10 +148,10 @@ def calc_accs(model, x_train, y_train, x_val, y_val, x_test, y_test):
     
     return acc_lst
 
-def pickle_save_accs(acc_dict, pretask_type, model_type, sp):
+def pickle_save_accs(acc_dict, pretask_type, model_type, datatype, sp):
     print(model_type)
     print(acc_dict)
-    name = pretask_type+model_type+'_acc_dict'
+    name = pretask_type+datatype+model_type+'_acc_dict'
     with open(sp+'obj/'+ name + '.pkl', 'wb') as f:
             pickle.dump(acc_dict, f)
 
@@ -145,8 +167,17 @@ def main():
 
     # where to grab data and who
     wrist_lp = '/data1/users/stepeter/cnn_hilbert/ecog_data/xarray/'
-    pats_ids_in = ['a0f66459','c95c1e82','cb46fd46','fcb01f7a','ffb52f92','b4ac1726',
+    speech_lp = '/data2/users/gsquist/speech_project/epochd_ecog_data/'
+    
+    datatype = "speech" #model
+    if datatype == "speech":
+        pats_ids_in = ['a0f66459','cb46fd46','b45e3f7b']
+        lp = speech_lp
+    else:
+        pats_ids_in = ['a0f66459','c95c1e82','cb46fd46','fcb01f7a','ffb52f92','b4ac1726',
                    'f3b79359','ec761078','f0bbc9a9','abdb496b','ec168864','b45e3f7b']
+        lp = wrist_lp
+    
     # model params
     optimizer='adam'
     loss='binary_crossentropy'
@@ -168,22 +199,23 @@ def main():
         ts_total_acc_lst = []
         for fold in range(folds):
     #         set specific params
-            pretask_type = 'sig_tran'
-            tl_chckpt_path = sp+pretask_type+'/checkpoint_gen_tl_'+sbj+'_fold'+str(fold)+'.h5'
-            ts_chckpt_path = sp+pretask_type+'/checkpoint_gen_ts_'+sbj+'_fold'+str(fold)+'.h5'
+            pretask_type = 'sig_tran' #rel_pos or sig_tran
+            tl_chckpt_path = sp+pretask_type+'/checkpoint_gen_tl_'+datatype+'_'+sbj+'_fold'+str(fold)+'.h5'
+            ts_chckpt_path = sp+pretask_type+'/checkpoint_gen_ts_'+datatype+'_'+sbj+'_fold'+str(fold)+'.h5'
             model_dir = '/data1/users/gsquist/state_decoder/accuracy_outputs/'+sbj+'/class_ssl/'
-            model_name = pretask_type+'_model_htnet_fold_'+str(fold)+'.h5'
+            model_name = pretask_type+'_'+datatype+'_htnet_fold_'+str(fold)+'.h5'
             model_fname = model_dir + model_name
 
             pretask_model = tf.keras.models.load_model(model_fname)
             pretask_model.summary()
 
             # load in the data
-            x_train, y_train, x_val, y_val, x_test, y_test, nb_classes = load_and_split_data(sbj, wrist_lp, \
-                                                                                 n_chans_all, test_day, tlim, n_folds)
+            x_train, y_train, x_val, y_val, x_test, y_test, nb_classes = load_and_split_data(sbj, lp, \
+                                                                                 n_chans_all, test_day, tlim, n_folds, datatype)
 
             # create the TL model
-            transfer_model = create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, norm_rate, pretask_model)
+            transfer_model = create_tl_model(pretask_type, model_dir, model_fname, fold, nb_classes, \
+                                             norm_rate, pretask_model, datatype)
 
             # get accuracies before finetuning
             pretask_total_acc_lst.append(calc_accs(transfer_model, x_train, y_train, x_val, y_val, x_test, y_test))
@@ -210,9 +242,9 @@ def main():
         ts_acc_dict[sbj] = ts_total_acc_lst
         print("subject "+sbj+" done")
 
-    pickle_save_accs(pretask_acc_dict, pretask_type, model_types[0], sp)
-    pickle_save_accs(tl_acc_dict, pretask_type, model_types[1], sp)
-    pickle_save_accs(ts_acc_dict, pretask_type, model_types[2], sp)
+    pickle_save_accs(pretask_acc_dict, pretask_type, model_types[0], datatype, sp)
+    pickle_save_accs(tl_acc_dict, pretask_type, model_types[1], datatype, sp)
+    pickle_save_accs(ts_acc_dict, pretask_type, model_types[2], datatype, sp)
 
 
 if __name__ == "__main__":
